@@ -38,15 +38,12 @@ fn main() {
         regex!("agggta[cgt]a|t[acg]taccct"),
         regex!("agggtaa[cgt]|[acg]ttaccct"),
     ];
-    let mut count_promises = vec![];
-    for i in 0..3 {
+    let mut counts = vec![];
+    for variant in variants {
         let seq = seq_arc.clone();
-        let res = variants[i * 3..i * 3 + 3].to_vec();
-        count_promises.push(thread::spawn(move || {
-            res.into_iter()
-               .map(|re| (re.to_string(), re.find_iter(&seq).count()))
-               .collect::<Vec<_>>()
-        }));
+        let restr = variant.to_string();
+        let future = thread::spawn(move || variant.find_iter(&seq).count());
+        counts.push((restr, future));
     }
 
     let substs = vec![
@@ -64,15 +61,12 @@ fn main() {
     ]; // combined into one regex in `replace_all`
     let seq = replace_all(&seq, substs);
 
-    for promise in count_promises {
-        for (re, count) in promise.join().unwrap() {
-            println!("{} {}", re, count);
-        }
+    for (variant, count) in counts {
+        println!("{} {}", variant, count.join().unwrap());
     }
     println!("\n{}\n{}\n{}", ilen, clen, seq.len());
 }
 
-#[allow(deprecated)] // for connect -> join in Rust 1.3
 fn replace_all(text: &str, substs: Vec<(u8, &str)>) -> String {
     let mut replacements = vec![""; 256];
     let mut alternates = vec![];
@@ -81,7 +75,7 @@ fn replace_all(text: &str, substs: Vec<(u8, &str)>) -> String {
         alternates.push((re as char).to_string());
     }
 
-    let re = regex!(&alternates.connect("|"));
+    let re = regex!(&alternates.join("|"));
     let mut new = String::with_capacity(text.len());
     let mut last_match = 0;
     for (s, e) in re.find_iter(text) {

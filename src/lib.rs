@@ -17,7 +17,8 @@
 //!
 //! This crate's documentation provides some simple examples, describes Unicode
 //! support and exhaustively lists the supported syntax. For more specific
-//! details on the API, please see the documentation for the `Regex` type.
+//! details on the API, please see the documentation for the
+//! [`Regex`](struct.Regex.html) type.
 //!
 //! # Usage
 //!
@@ -26,7 +27,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! regex = "0.1.8"
+//! regex = "0.1"
 //! ```
 //!
 //! and this to your crate root:
@@ -35,7 +36,7 @@
 //! extern crate regex;
 //! ```
 //!
-//! # First example: find a date
+//! # Example: find a date
 //!
 //! General use of regular expressions in this package involves compiling an
 //! expression and then using it to search, split or replace text. For example,
@@ -53,61 +54,45 @@
 //! full text matches an expression.
 //!
 //! This example also demonstrates the utility of
-//! [raw strings](http://doc.rust-lang.org/stable/reference.html#raw-byte-string-literals)
+//! [raw strings](https://doc.rust-lang.org/stable/reference.html#raw-string-literals)
 //! in Rust, which
 //! are just like regular strings except they are prefixed with an `r` and do
 //! not process any escape sequences. For example, `"\\d"` is the same
 //! expression as `r"\d"`.
 //!
-//! # The `regex!` macro
+//! # Example: Avoid compiling the same regex in a loop
 //!
-//! Rust's compile-time meta-programming facilities provide a way to write a
-//! `regex!` macro which compiles regular expressions *when your program
-//! compiles*. Said differently, if you only use `regex!` to build regular
-//! expressions in your program, then your program cannot compile with an
-//! invalid regular expression. Moreover, the `regex!` macro compiles the
-//! given expression to native Rust code, which ideally makes it faster.
-//! Unfortunately (or fortunately), the dynamic implementation has had a lot
-//! more optimization work put it into it currently, so it is faster than
-//! the `regex!` macro in most cases.
+//! It is an anti-pattern to compile the same regular expression in a loop
+//! since compilation is typically expensive. (It takes anywhere from a few
+//! microseconds to a few **milliseconds** depending on the size of the
+//! regex.) Not only is compilation itself expensive, but this also prevents
+//! optimizations that reuse allocations internally to the matching engines.
 //!
-//! To use the `regex!` macro, you must add `regex_macros` to your dependencies
-//! in your project's `Cargo.toml`:
+//! In Rust, it can sometimes be a pain to pass regular expressions around if
+//! they're used from inside a helper function. Instead, we recommend using the
+//! [`lazy_static`](https://crates.io/crates/lazy_static) crate to ensure that
+//! regular expressions are compiled exactly once.
 //!
-//! ```toml
-//! [dependencies]
-//! regex = "0.1.8"
-//! regex_macros = "0.1.8"
-//! ```
+//! For example:
 //!
-//! and then enable the `plugin` feature and import the `regex_macros` crate as
-//! a syntax extension:
-//!
-//! ```ignore
-//! #![feature(plugin)]
-//! #![plugin(regex_macros)]
+//! ```rust
+//! #[macro_use] extern crate lazy_static;
 //! extern crate regex;
 //!
-//! fn main() {
-//!     let re = regex!(r"^\d{4}-\d{2}-\d{2}$");
-//!     assert!(re.is_match("2014-01-01"));
+//! use regex::Regex;
+//!
+//! fn some_helper_function(text: &str) -> bool {
+//!     lazy_static! {
+//!         static ref RE: Regex = Regex::new("...").unwrap();
+//!     }
+//!     RE.is_match(text)
 //! }
+//!
+//! fn main() {}
 //! ```
 //!
-//! There are a few things worth mentioning about using the `regex!` macro.
-//! Firstly, the `regex!` macro *only* accepts string *literals*.
-//! Secondly, the `regex` crate *must* be linked with the name `regex` since
-//! the generated code depends on finding symbols in the `regex` crate.
-//!
-//! One downside of using the `regex!` macro is that it can increase the
-//! size of your program's binary since it generates specialized Rust code.
-//! The extra size probably won't be significant for a small number of
-//! expressions, but 100+ calls to `regex!` will probably result in a
-//! noticeably bigger binary.
-//!
-//! **NOTE**: This is implemented using a compiler plugin, which is not
-//! available on the Rust 1.0 beta/stable channels. Therefore, you'll only
-//! be able to use `regex!` on the nightlies.
+//! Specifically, in this example, the regex will be compiled when it is used for
+//! the first time. On subsequent uses, it will reuse the previous compilation.
 //!
 //! # Example: iterating over capture groups
 //!
@@ -176,6 +161,34 @@
 //! # }
 //! ```
 //!
+//! # Example: match multiple regular expressions simultaneously
+//!
+//! This demonstrates how to use a `RegexSet` to match multiple (possibly
+//! overlapping) regular expressions in a single scan of the search text:
+//!
+//! ```rust
+//! use regex::RegexSet;
+//!
+//! let set = RegexSet::new(&[
+//!     r"\w+",
+//!     r"\d+",
+//!     r"\pL+",
+//!     r"foo",
+//!     r"bar",
+//!     r"barfoo",
+//!     r"foobar",
+//! ]).unwrap();
+//!
+//! // Iterate over and collect all of the matches.
+//! let matches: Vec<_> = set.matches("foobar").into_iter().collect();
+//! assert_eq!(matches, vec![0, 2, 3, 4, 6]);
+//!
+//! // You can also test whether a particular regex matched:
+//! let matches = set.matches("foobar");
+//! assert!(!matches.matched(5));
+//! assert!(matches.matched(6));
+//! ```
+//!
 //! # Pay for what you use
 //!
 //! With respect to searching text with a regular expression, there are three
@@ -196,18 +209,17 @@
 //!
 //! # Unicode
 //!
-//! This implementation executes regular expressions **only** on sequences of
-//! Unicode scalar values while exposing match locations as byte indices into
-//! the search string.
+//! This implementation executes regular expressions **only** on valid UTF-8
+//! while exposing match locations as byte indices into the search string.
 //!
-//! Currently, only simple case folding is supported. Namely, when matching
-//! case-insensitively, the characters are first mapped using the
-//! [simple case folding](ftp://ftp.unicode.org/Public/UNIDATA/CaseFolding.txt)
-//! mapping.
+//! Only simple case folding is supported. Namely, when matching
+//! case-insensitively, the characters are first mapped using the [simple case
+//! folding](ftp://ftp.unicode.org/Public/UNIDATA/CaseFolding.txt) mapping
+//! before matching.
 //!
-//! Regular expressions themselves are also **only** interpreted as a sequence
-//! of Unicode scalar values. This means you can use Unicode characters
-//! directly in your expression:
+//! Regular expressions themselves are **only** interpreted as a sequence of
+//! Unicode scalar values. This means you can use Unicode characters directly
+//! in your expression:
 //!
 //! ```rust
 //! # extern crate regex; use regex::Regex;
@@ -229,14 +241,27 @@
 //! # }
 //! ```
 //!
+//! # Opt out of Unicode support
+//!
+//! The `bytes` sub-module provides a `Regex` type that can be used to match
+//! on `&[u8]`. By default, text is interpreted as ASCII compatible text with
+//! all Unicode support disabled (e.g., `.` matches any byte instead of any
+//! Unicode codepoint). Unicode support can be selectively enabled with the
+//! `u` flag. See the `bytes` module documentation for more details.
+//!
+//! Unicode support can also be selectively *disabled* with the main `Regex`
+//! type that matches on `&str`. For example, `(?-u:\b)` will match an ASCII
+//! word boundary. Note though that invalid UTF-8 is not allowed to be matched
+//! even when the `u` flag is disabled. For example, `(?-u:.)` will return an
+//! error, since `.` matches *any byte* when Unicode support is disabled.
+//!
 //! # Syntax
 //!
 //! The syntax supported in this crate is almost in an exact correspondence
 //! with the syntax supported by RE2. It is documented below.
 //!
 //! Note that the regular expression parser and abstract syntax are exposed in
-//! a separate crate,
-//! [`regex-syntax`](../regex_syntax/index.html).
+//! a separate crate, [`regex-syntax`](../regex_syntax/index.html).
 //!
 //! ## Matching one character
 //!
@@ -272,14 +297,14 @@
 //! x*        zero or more of x (greedy)
 //! x+        one or more of x (greedy)
 //! x?        zero or one of x (greedy)
-//! x*?       zero or more of x (ungreedy)
-//! x+?       one or more of x (ungreedy)
-//! x??       zero or one of x (ungreedy)
+//! x*?       zero or more of x (ungreedy/lazy)
+//! x+?       one or more of x (ungreedy/lazy)
+//! x??       zero or one of x (ungreedy/lazy)
 //! x{n,m}    at least n x and at most m x (greedy)
 //! x{n,}     at least n x (greedy)
 //! x{n}      exactly n x
-//! x{n,m}?   at least n x and at most m x (ungreedy)
-//! x{n,}?    at least n x (ungreedy)
+//! x{n,m}?   at least n x and at most m x (ungreedy/lazy)
+//! x{n,}?    at least n x (ungreedy/lazy)
 //! x{n}?     exactly n x
 //! </pre>
 //!
@@ -309,13 +334,14 @@
 //! the same time: `(?xy)` sets both the `x` and `y` flags and `(?x-y)` sets
 //! the `x` flag and clears the `y` flag.
 //!
-//! All flags are by default disabled. They are:
+//! All flags are by default disabled unless stated otherwise. They are:
 //!
 //! <pre class="rust">
 //! i     case-insensitive
 //! m     multi-line mode: ^ and $ match begin/end of line
 //! s     allow . to match \n
 //! U     swap the meaning of x* and x*?
+//! u     Unicode support (enabled by default)
 //! x     ignore whitespace and allow line comments (starting with `#`)
 //! </pre>
 //!
@@ -333,6 +359,18 @@
 //!
 //! Notice that the `a+` matches either `a` or `A`, but the `b+` only matches
 //! `b`.
+//!
+//! Here is an example that uses an ASCII word boundary instead of a Unicode
+//! word boundary:
+//!
+//! ```rust
+//! # extern crate regex; use regex::Regex;
+//! # fn main() {
+//! let re = Regex::new(r"(?-u:\b).+(?-u:\b)").unwrap();
+//! let cap = re.captures("$$abc$$").unwrap();
+//! assert_eq!(cap.at(0), Some("abc"));
+//! # }
+//! ```
 //!
 //! ## Escape sequences
 //!
@@ -397,43 +435,173 @@
 //! crate have time complexity `O(mn)` (with `m ~ regex` and `n ~ search
 //! text`), which means there's no way to cause exponential blow-up like with
 //! some other regular expression engines. (We pay for this by disallowing
-//! features like arbitrary look-ahead and back-references.)
+//! features like arbitrary look-ahead and backreferences.)
+//!
+//! When a DFA is used, pathological cases with exponential state blow up are
+//! avoided by constructing the DFA lazily or in an "online" manner. Therefore,
+//! at most one new state can be created for each byte of input. This satisfies
+//! our time complexity guarantees, but can lead to unbounded memory growth
+//! proportional to the size of the input. As a stopgap, the DFA is only
+//! allowed to store a fixed number of states. (When the limit is reached, its
+//! states are wiped and continues on, possibly duplicating previous work. If
+//! the limit is reached too frequently, it gives up and hands control of to
+//! another matching engine with fixed memory requirements.)
 
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
 #![cfg_attr(feature = "pattern", feature(pattern))]
-#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/regex/")]
+#![cfg_attr(feature = "simd-accel", feature(cfg_target_feature))]
+#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "https://www.rust-lang.org/favicon.ico",
+       html_root_url = "https://doc.rust-lang.org/regex/")]
 
 extern crate aho_corasick;
 extern crate memchr;
+extern crate thread_local;
+#[cfg(test)] extern crate quickcheck;
 extern crate regex_syntax as syntax;
+#[cfg(feature = "simd-accel")] extern crate simd;
+extern crate utf8_ranges;
 
-pub use re::{
-    Regex, Error, Captures, SubCaptures, SubCapturesPos, SubCapturesNamed,
-    FindCaptures, FindMatches,
+pub use error::Error;
+pub use re_builder::unicode::*;
+pub use re_set::unicode::*;
+pub use re_unicode::{
+    Regex, Captures, SubCaptures, SubCapturesPos, SubCapturesNamed,
+    CaptureNames, FindCaptures, FindMatches,
     Replacer, NoExpand, RegexSplits, RegexSplitsN,
     quote, is_match,
 };
 
+/**
+Match regular expressions on arbitrary bytes.
+
+This module provides a nearly identical API to the one found in the
+top-level of this crate. There are two important differences:
+
+1. Matching is done on `&[u8]` instead of `&str`. Additionally, `Vec<u8>`
+is used where `String` would have been used.
+2. Regular expressions are compiled with Unicode support *disabled* by
+default. This means that while Unicode regular expressions can only match valid
+UTF-8, regular expressions in this module can match arbitrary bytes. Unicode
+support can be selectively enabled via the `u` flag in regular expressions
+provided by this sub-module.
+
+# Example: match null terminated string
+
+This shows how to find all null-terminated strings in a slice of bytes:
+
+```rust
+# use regex::bytes::Regex;
+let re = Regex::new(r"(?P<cstr>[^\x00]+)\x00").unwrap();
+let text = b"foo\x00bar\x00baz\x00";
+
+// Extract all of the strings without the null terminator from each match.
+// The unwrap is OK here since a match requires the `cstr` capture to match.
+let cstrs: Vec<&[u8]> =
+    re.captures_iter(text)
+      .map(|c| c.name("cstr").unwrap())
+      .collect();
+assert_eq!(vec![&b"foo"[..], &b"bar"[..], &b"baz"[..]], cstrs);
+```
+
+# Example: selectively enable Unicode support
+
+This shows how to match an arbitrary byte pattern followed by a UTF-8 encoded
+string (e.g., to extract a title from a Matroska file):
+
+```rust
+# use std::str;
+# use regex::bytes::Regex;
+let re = Regex::new(r"\x7b\xa9(?:[\x80-\xfe]|[\x40-\xff].)(?u:(.*))").unwrap();
+let text = b"\x12\xd0\x3b\x5f\x7b\xa9\x85\xe2\x98\x83\x80\x98\x54\x76\x68\x65";
+let caps = re.captures(text).unwrap();
+
+// Notice that despite the `.*` at the end, it will only match valid UTF-8
+// because Unicode mode was enabled with the `u` flag. Without the `u` flag,
+// the `.*` would match the rest of the bytes.
+assert_eq!((7, 10), caps.pos(1).unwrap());
+
+// If there was a match, Unicode mode guarantees that `title` is valid UTF-8.
+let title = str::from_utf8(caps.at(1).unwrap()).unwrap();
+assert_eq!("☃", title);
+```
+
+In general, if the Unicode flag is enabled in a capture group and that capture
+is part of the overall match, then the capture is *guaranteed* to be valid
+UTF-8.
+
+# Syntax
+
+The supported syntax is pretty much the same as the syntax for Unicode
+regular expressions with a few changes that make sense for matching arbitrary
+bytes:
+
+1. The `u` flag is *disabled* by default, but can be selectively enabled. (The
+opposite is true for the main `Regex` type.) Disabling the `u` flag is said to
+invoke "ASCII compatible" mode.
+2. In ASCII compatible mode, neither Unicode codepoints nor Unicode character
+classes are allowed.
+3. In ASCII compatible mode, Perl character classes (`\w`, `\d` and `\s`)
+revert to their typical ASCII definition. `\w` maps to `[[:word:]]`, `\d` maps
+to `[[:digit:]]` and `\s` maps to `[[:space:]]`.
+4. In ASCII compatible mode, word boundaries use the ASCII compatible `\w` to
+determine whether a byte is a word byte or not.
+5. Hexadecimal notation can be used to specify arbitrary bytes instead of
+Unicode codepoints. For example, in ASCII compatible mode, `\xFF` matches the
+literal byte `\xFF`, while in Unicode mode, `\xFF` is a Unicode codepoint that
+matches its UTF-8 encoding of `\xC3\xBF`. Similarly for octal notation.
+6. `.` matches any *byte* except for `\n` instead of any codepoint. When the
+`s` flag is enabled, `.` matches any byte.
+
+# Performance
+
+In general, one should expect performance on `&[u8]` to be roughly similar to
+performance on `&str`.
+*/
+pub mod bytes {
+    pub use re_builder::bytes::*;
+    pub use re_set::bytes::*;
+    pub use re_bytes::*;
+}
+
 mod backtrack;
-mod char;
+mod utf8;
 mod compile;
+mod dfa;
+mod error;
+mod exec;
+mod expand;
+mod freqs;
 mod input;
-mod pool;
-mod prefix;
-mod program;
-mod nfa;
-mod re;
+mod literals;
+#[cfg(feature = "pattern")]
+mod pattern;
+mod pikevm;
+mod prog;
+mod re_builder;
+mod re_bytes;
+mod re_plugin;
+mod re_set;
+mod re_trait;
+mod re_unicode;
+#[cfg(feature = "simd-accel")]
+mod simd_accel;
+#[cfg(not(feature = "simd-accel"))]
+#[path = "simd_fallback/mod.rs"]
+mod simd_accel;
+mod sparse;
 
 /// The `internal` module exists to support the `regex!` macro and other
-/// suspicious activity, such as testing different matching engines.
+/// suspicious activity, such as testing different matching engines and
+/// supporting the `regex-debug` CLI utility.
 #[doc(hidden)]
 pub mod internal {
-    pub use char::Char;
-    pub use input::{Input, CharInput, InputAt};
-    pub use program::{Program, MatchEngine, CharRanges, Inst, LookInst};
-    pub use re::ExNative;
-    pub use re::Regex::{Dynamic, Native};
+    pub use compile::Compiler;
+    pub use exec::{Exec, ExecBuilder};
+    pub use input::{Char, Input, CharInput, InputAt};
+    pub use literals::LiteralSearcher;
+    pub use prog::{Program, Inst, EmptyLook, InstRanges};
+    pub use re_plugin::Plugin;
+    pub use re_unicode::_Regex;
 }
